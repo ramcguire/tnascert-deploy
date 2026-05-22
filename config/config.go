@@ -15,14 +15,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// Package config handles the parsing and validation of TrueNAS certificate deployment configurations.
 package config
 
 import (
 	"fmt"
 	"os"
-	"strconv"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/ncruces/go-strftime"
 	"gopkg.in/ini.v1"
 )
@@ -37,67 +40,83 @@ const (
 )
 
 type Config struct {
-	ApiKey                 string `ini:"api_key"`                // TrueNAS 64 byte API Key
-	CertBasename           string `ini:"cert_basename"`          // basename for cert naming in TrueNAS
-	ClientApi              string `ini:"client_api"`             // Client type, 'wsapi' (default) or restapi
-	ConnectHost            string `ini:"connect_host"`           // TrueNAS hostname
-	DeleteOldCertsStr      string `ini:"delete_old_certs"`       // whether to remove old certificates, String value
-	StrictBasenameMatchStr string `ini:"strict_basename_match"`  // whether to use a strict basename match when deleting certs, String value
-	FullChainPath          string `ini:"full_chain_path"`        // path to full_chain.pem
-	PortStr                string `ini:"port"`                   // TrueNAS API endpoint port, String value
-	Protocol               string `ini:"protocol"`               // websocket protocol 'ws' or 'wss' 'wss' is default
-	PrivateKeyPath         string `ini:"private_key_path"`       // path to private_key.pem
-	TlsSkipVerifyStr       string `ini:"tls_skip_verify"`        // strict SSL cert verification of the endpoint, String value
-	AddAsUiCertificateStr  string `ini:"add_as_ui_certificate"`  // Install as the active UI certificate if true, String value
-	AddAsFTPCertificateStr string `ini:"add_as_ftp_certificate"` // Install as the active FTP service certificate if true, String value
-	AddAsAppCertificateStr string `ini:"add_as_app_certificate"` // Install as the active APP service certificate if true, String value
-	AppList                string `ini:"app_list"`               // comma separated list of Apps to deploy the certificate too.
-	TimeoutSecondsStr      string `ini:"timeoutSeconds"`         // the number of seconds after which the truenas client calls fail, String value
-	DebugStr               string `ini:"debug"`                  // debug logging if true, String value
-	Username               string `ini:"username"`               // an admin user name
-	Password               string `ini:"password"`               // admin users password
-	DeleteOldCerts         bool   // whether to remove old certificates
-	StrictBasenameMatch    bool   // whether to match the certificate basename strictly
-	Port                   uint64 // TrueNAS API endpoint port
-	TlsSkipVerify          bool   // strict SSL cert verification of the endpoint
-	AddAsUiCertificate     bool   // Install as the active UI certificate if true.
-	AddAsFTPCertificate    bool   // Install as the active FTP certificate if true.
-	AddAsAppCertificate    bool   // Install as the active APP certificate if true.
-	TimeoutSeconds         int64  // the number of seconds after which the truenas client calls fail
-	Debug                  bool   // debug logging if true.
-	certName               string // instance generated certificate name.
-	serverURL              string // instance generated server URL
+	ApiKey              string `ini:"api_key"`                                            // TrueNAS 64 byte API Key
+	CertBasename        string `ini:"cert_basename" validate:"required"`                  // Basename for cert naming in TrueNAS
+	ClientApi           string `ini:"client_api" validate:"required,oneof=wsapi restapi"` // Client type, 'wsapi' (default) or restapi
+	ConnectHost         string `ini:"connect_host" validate:"required,hostname|fqdn|ip"`  // TrueNAS hostname
+	DeleteOldCerts      bool   `ini:"delete_old_certs"`                                   // Whether to remove old certificates
+	StrictBasenameMatch bool   `ini:"strict_basename_match"`                              // Whether to use a strict basename match when deleting certs
+	FullChainPath       string `ini:"full_chain_path" validate:"required"`                // Path to full_chain.pem
+	Port                uint64 `ini:"port" validate:"port"`                               // TrueNAS API endpoint port
+	Protocol            string `ini:"protocol" validate:"oneof=ws wss http https"`        // Websocket/REST protocol
+	PrivateKeyPath      string `ini:"private_key_path" validate:"required"`               // Path to private_key.pem
+	TlsSkipVerify       bool   `ini:"tls_skip_verify"`                                    // Strict SSL cert verification of the endpoint
+	AddAsUiCertificate  bool   `ini:"add_as_ui_certificate"`                              // Install as the active UI certificate if true
+	AddAsFTPCertificate bool   `ini:"add_as_ftp_certificate"`                             // Install as the active FTP service certificate if true
+	AddAsAppCertificate bool   `ini:"add_as_app_certificate"`                             // Install as the active APP service certificate if true
+	// Note: AppList could be defined as a slice (Applist []string) and ini.v1 will automatically convert the comma-separated values
+	AppList        string `ini:"app_list"`                                  // Comma separated list of Apps to deploy the certificate too.
+	TimeoutSeconds int64  `ini:"timeout_seconds" validate:"required,min=1"` // The number of seconds after which the truenas client calls fail
+	Debug          bool   `ini:"debug"`                                     // Debug logging if true
+	Username       string `ini:"username"`                                  // An admin user name for the TrueNAS target
+	Password       string `ini:"password"`                                  // The TrueNAS target Admin user's password
+
+	certName  string // instance generated certificate name.
+	serverURL string // instance generated server URL
 }
 
-func LoadConfig(config_file string) (map[string]*Config, error) {
-	var cfg_list = make(map[string]*Config)
+var envRegex = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
-	// load the config file
-	f, err := ini.Load(config_file)
+// LoadConfig loads configuration settings from the configuration file configFile,
+// validates the contents, and populates a map of Config structs with the resulting
+// values.
+//
+// The returned map contains one key per configuration file section.
+func LoadConfig(configFile string) (map[string]*Config, error) {
+	cfgList := make(map[string]*Config)
+
+	f, err := loadInterpolatedConfigFile(configFile)
 	if err != nil {
 		return nil, err
 	}
 
+	validate := validator.New(validator.WithRequiredStructEnabled())
+
 	for _, section := range f.Sections() {
 		name := section.Name()
-		if name == "DEFAULT" {
+		if name == ini.DefaultSection {
 			continue
 		}
-		var c = Config{}
-		err = f.Section(name).MapTo(&c)
-		if err != nil {
+
+		// Handle any keys that have been deprecated
+		handleDeprecatedKeys(section)
+		// Apply any needed data transformation on the config prior to validation
+		normaliseConfig(section)
+
+		c := newDefaultConfig()
+		if err := section.StrictMapTo(&c); err != nil {
 			return nil, err
 		}
-		err = c.checkConfig()
-		if err != nil {
-			return nil, fmt.Errorf("error in section '%s': %v", name, err)
+
+		// Validate against struct tags using validator
+		if err := validate.Struct(&c); err != nil {
+			return nil, fmt.Errorf("error in section '%s': %w", name, err)
 		}
-		cfg_list[name] = &c
+
+		// Additional validations
+		if err := checkAuthConfig(c.Username, c.Password, c.ApiKey); err != nil {
+			return nil, err
+		}
+
+		cfgList[name] = &c
 	}
 
-	return cfg_list, nil
+	return cfgList, nil
 }
 
+// CertName builds a certificate name using the supplied base name and the current date/time.
+//
+// Returns a string with the constructed certificate name.
 func (c *Config) CertName() string {
 	if c.certName == "" {
 		c.certName = c.CertBasename + strftime.Format("-%Y-%m-%d-%s", time.Now())
@@ -105,6 +124,9 @@ func (c *Config) CertName() string {
 	return c.certName
 }
 
+// ServerURL builds a URL for the server API endpoint by combining the protocol, hostname, and port.
+//
+// Returns a string with the constructed URL.
 func (c *Config) ServerURL() string {
 	if c.serverURL == "" {
 		c.serverURL = fmt.Sprintf("%s://%s:%d", c.Protocol, c.ConnectHost, c.Port)
@@ -112,150 +134,96 @@ func (c *Config) ServerURL() string {
 	return c.serverURL
 }
 
-func (c *Config) checkConfig() error {
-	// lookup the ApiKey
-	c.ApiKey = os.ExpandEnv(c.ApiKey)
-
-	// lookup the Username
-	c.Username = os.ExpandEnv(c.Username)
-
-	// lookup the Password
-	c.Password = os.ExpandEnv(c.Password)
-	if c.ApiKey == "" && c.Username == "" {
-		return fmt.Errorf("no authentication is defined, use an 'api_key' or the 'username' and 'password'")
-	}
-
-	// lookup the cert_basename
-	c.CertBasename = os.ExpandEnv(c.CertBasename)
-	if c.CertBasename == "" {
-		c.CertBasename = Default_base_cert_name
-	}
-
-	// lookup the connect_host
-	c.ConnectHost = os.ExpandEnv(c.ConnectHost)
-	if c.ConnectHost == "" {
-		return fmt.Errorf("the required 'connect_host' parameter is not defined")
-	}
-
-	// lookup the client_api
-	c.ClientApi = os.ExpandEnv(c.ClientApi)
-	if c.ClientApi == "" {
-		c.ClientApi = Default_protocol
-	} else if c.ClientApi != "restapi" && c.ClientApi != "wsapi" {
-		return fmt.Errorf("invalid client_api '%s' use 'restapi' or 'wsapi'", c.ClientApi)
-	}
-
-	// lookup delete_old_certs
-	c.DeleteOldCertsStr = os.ExpandEnv(c.DeleteOldCertsStr)
-	if b, err := strconv.ParseBool(c.DeleteOldCertsStr); err == nil {
-		c.DeleteOldCerts = b
-	} else {
-		return err
-	}
-
-	// lookup strict_basename_match
-	if c.StrictBasenameMatchStr != "" {
-		c.StrictBasenameMatchStr = os.ExpandEnv(c.StrictBasenameMatchStr)
-		if b, err := strconv.ParseBool(c.StrictBasenameMatchStr); err == nil {
-			c.StrictBasenameMatch = b
-		} else {
-			return err
-		}
-	} else {
-		// Default to the original app behaviour if the key is not specified
-		c.StrictBasenameMatch = false
-	}
-
-	//lookup the full_chain_path
-	c.FullChainPath = os.ExpandEnv(c.FullChainPath)
-	if c.FullChainPath == "" {
-		return fmt.Errorf("the required 'fullchain_path' is not defined")
-	}
-
-	// lookup the private_key_path
-	c.PrivateKeyPath = os.ExpandEnv(c.PrivateKeyPath)
-	if c.PrivateKeyPath == "" {
-		return fmt.Errorf("the required 'private_key_path' is not defined")
-	}
-
-	// lookup the port
-	c.PortStr = os.ExpandEnv(c.PortStr)
-	if c.PortStr != "" {
-		if i, err := strconv.ParseUint(c.PortStr, 10, 64); err == nil {
-			c.Port = i
-		} else {
-			return err
+// normaliseConfig applies data transformations to user-supplied configuration to standardise the format.
+func normaliseConfig(section *ini.Section) {
+	// Lower-case some config items to make them effectively case-insensitive
+	targetKeys := []string{"protocol", "client_api"}
+	for _, keyName := range targetKeys {
+		if section.HasKey(keyName) {
+			curVal := section.Key(keyName).String()
+			section.Key(keyName).SetValue(strings.ToLower(curVal))
 		}
 	}
-	// if port is not defined, use the default
-	if c.Port == 0 {
-		c.Port = Default_port
-	}
+}
 
-	// lookup the protocol
-	c.Protocol = os.ExpandEnv(c.Protocol)
-	// if the protocol is not defined, use the default
-	if c.Protocol == "" {
-		c.Protocol = Default_protocol
-	} else if c.Protocol != "ws" && c.Protocol != "wss" && c.Protocol != "http" && c.Protocol != "https" {
-		return fmt.Errorf("invalid protocol use 'ws' or 'wss' or 'http' or 'https")
-	}
-
-	// lookup tls_skip_verify
-	c.TlsSkipVerifyStr = os.ExpandEnv(c.TlsSkipVerifyStr)
-	if b, err := strconv.ParseBool(c.TlsSkipVerifyStr); err == nil {
-		c.TlsSkipVerify = b
-	} else {
-		return err
-	}
-
-	// lookup the add_as_ui_certificate
-	c.AddAsUiCertificateStr = os.ExpandEnv(c.AddAsUiCertificateStr)
-	if b, err := strconv.ParseBool(c.AddAsUiCertificateStr); err == nil {
-		c.AddAsUiCertificate = b
-	} else {
-		return err
-	}
-
-	// lookup the add_as_ftp_certificate
-	c.AddAsFTPCertificateStr = os.ExpandEnv(c.AddAsFTPCertificateStr)
-	if b, err := strconv.ParseBool(c.AddAsFTPCertificateStr); err == nil {
-		c.AddAsFTPCertificate = b
-	} else {
-		return err
-	}
-
-	// lookup the add_as_app_certificate
-	c.AddAsAppCertificateStr = os.ExpandEnv(c.AddAsAppCertificateStr)
-	if b, err := strconv.ParseBool(c.AddAsAppCertificateStr); err == nil {
-		c.AddAsAppCertificate = b
-	} else {
-		return err
-	}
-
-	// lookup the app_list
-	c.AppList = os.ExpandEnv(c.AppList)
-
-	// lookup the timeoutSeconds
-	c.TimeoutSecondsStr = os.ExpandEnv(c.TimeoutSecondsStr)
-	if c.TimeoutSecondsStr != "" {
-		if i, err := strconv.ParseInt(c.TimeoutSecondsStr, 10, 64); err == nil {
-			c.TimeoutSeconds = i
-		} else {
-			return err
+// ExpandEnvironmentVariables is a value mappper for ini.v1 that replaces expandEnvironmentVariables
+// in the format ${ENV_VAR} with the content of environment variable ENV_VAR
+//
+// It accepts a string and returns a string. If the environment variable is not found, an empty string is returned.
+func expandEnvironmentVariables(iniValue string) string {
+	myReplaceFunction := func(match string) string {
+		submatch := envRegex.FindStringSubmatch(match)
+		// In case we fail to find the variable name
+		if len(submatch) < 2 {
+			return match
 		}
-	}
-	if c.TimeoutSeconds <= 0 {
-		c.TimeoutSeconds = Default_timeout_seconds
-	}
-
-	// lookup the debug key
-	c.DebugStr = os.ExpandEnv(c.DebugStr)
-	if b, err := strconv.ParseBool(c.DebugStr); err == nil {
-		c.Debug = b
-	} else {
-		return err
+		envValue := os.Getenv(submatch[1])
+		return envValue
 	}
 
+	return envRegex.ReplaceAllStringFunc(iniValue, myReplaceFunction)
+}
+
+// LoadInterpolatedConfigFile reads configuration information from the named configuration file and
+// interpolates environment variables to their defined values.
+func loadInterpolatedConfigFile(filename string) (*ini.File, error) {
+	f, err := ini.Load(filename)
+	if err != nil {
+		return nil, err
+	}
+	f.ValueMapper = expandEnvironmentVariables
+
+	return f, nil
+}
+
+// CheckAuthConfig checks that authentication information has been provided and warns
+// if both API key and username/password have been defined.
+//
+// An error is returned if no authentication information has been specified.
+func checkAuthConfig(username string, password string, apiKey string) error {
+	hasApiKey := apiKey != ""
+	hasUserCreds := username != "" && password != ""
+
+	// We should have *either* API Key *or* username/password
+	if !hasApiKey && !hasUserCreds {
+		return fmt.Errorf("no authentication is defined: you must provide either api_key OR username and password")
+	}
+
+	// Warning if all three are provided
+	if hasApiKey && hasUserCreds {
+		// There's probably a better way to surface this warning...
+		fmt.Printf("WARNING: Both api_key and username/password are defined. The username and password will be ignored.\n")
+	}
 	return nil
+}
+
+// HandleDeprecatedKeys provides logic to handle any config file keys that have been deprecated.
+// If the key has a replacement (i.e. it is renamed) then we map that here.
+// Warnings are displayed for any deprecated keys in the user's configuration file.
+func handleDeprecatedKeys(section *ini.Section) {
+	if section.HasKey("timeoutSeconds") {
+		fmt.Printf("WARNING: Section '%s' uses the deprecated key timeoutSeconds. Please update your config to use timeout_seconds instead.\n", section.Name())
+		if !section.HasKey("timeout_seconds") {
+			oldValue := section.Key("timeoutSeconds").Value()
+			section.Key("timeout_seconds").SetValue(oldValue)
+		}
+	}
+}
+
+// newDefaultConfig returns an instance of Config prepopulated with default values.
+func newDefaultConfig() Config {
+	return Config{
+		AddAsAppCertificate: false,
+		AddAsFTPCertificate: false,
+		AddAsUiCertificate:  false,
+		CertBasename:        Default_base_cert_name,
+		ClientApi:           "wsapi",
+		Debug:               false,
+		DeleteOldCerts:      false,
+		Port:                Default_port,
+		Protocol:            Default_protocol,
+		StrictBasenameMatch: false,
+		TlsSkipVerify:       false,
+		TimeoutSeconds:      Default_timeout_seconds,
+	}
 }
