@@ -20,8 +20,8 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -47,7 +47,7 @@ type Config struct {
 	DeleteOldCerts      bool   `ini:"delete_old_certs"`                                   // Whether to remove old certificates
 	StrictBasenameMatch bool   `ini:"strict_basename_match"`                              // Whether to use a strict basename match when deleting certs
 	FullChainPath       string `ini:"full_chain_path" validate:"required"`                // Path to full_chain.pem
-	Port                uint64 `ini:"port" validate:"port"`                               // TrueNAS API endpoint port
+	Port                uint64 `ini:"port" validate:"min=1,max=65535"`                    // TrueNAS API endpoint port
 	Protocol            string `ini:"protocol" validate:"oneof=ws wss http https"`        // Websocket/REST protocol
 	PrivateKeyPath      string `ini:"private_key_path" validate:"required"`               // Path to private_key.pem
 	TlsSkipVerify       bool   `ini:"tls_skip_verify"`                                    // Strict SSL cert verification of the endpoint
@@ -64,8 +64,6 @@ type Config struct {
 	certName  string // instance generated certificate name.
 	serverURL string // instance generated server URL
 }
-
-var envRegex = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
 // LoadConfig loads configuration settings from the configuration file configFile,
 // validates the contents, and populates a map of Config structs with the resulting
@@ -107,6 +105,9 @@ func LoadConfig(configFile string) (map[string]*Config, error) {
 		if err := checkAuthConfig(c.Username, c.Password, c.ApiKey); err != nil {
 			return nil, err
 		}
+		if err := checkProtocolCompatibility(c.ClientApi, c.Protocol); err != nil {
+			return nil, fmt.Errorf("error in section '%s': %w", name, err)
+		}
 
 		cfgList[name] = &c
 	}
@@ -146,22 +147,11 @@ func normaliseConfig(section *ini.Section) {
 	}
 }
 
-// ExpandEnvironmentVariables is a value mapper for ini.v1 that replaces expandEnvironmentVariables
-// in the format ${ENV_VAR} with the content of environment variable ENV_VAR
-//
-// It accepts a string and returns a string. If the environment variable is not found, an empty string is returned.
+// expandEnvironmentVariables is a value mapper for ini.v1 that replaces references in
+// the format ${ENV_VAR} or $ENV_VAR with the value of the named environment variable.
+// If the variable is not set, an empty string is substituted.
 func expandEnvironmentVariables(iniValue string) string {
-	myReplaceFunction := func(match string) string {
-		submatch := envRegex.FindStringSubmatch(match)
-		// In case we fail to find the variable name
-		if len(submatch) < 2 {
-			return match
-		}
-		envValue := os.Getenv(submatch[1])
-		return envValue
-	}
-
-	return envRegex.ReplaceAllStringFunc(iniValue, myReplaceFunction)
+	return os.Expand(iniValue, os.Getenv)
 }
 
 // LoadInterpolatedConfigFile reads configuration information from the named configuration file and
@@ -189,10 +179,8 @@ func checkAuthConfig(username string, password string, apiKey string) error {
 		return fmt.Errorf("no authentication is defined: you must provide either api_key OR username and password")
 	}
 
-	// Warning if all three are provided
 	if hasApiKey && hasUserCreds {
-		// There's probably a better way to surface this warning...
-		fmt.Printf("WARNING: Both api_key and username/password are defined. The username and password will be ignored.\n")
+		log.Printf("WARNING: Both api_key and username/password are defined. The username and password will be ignored.")
 	}
 	return nil
 }
@@ -202,12 +190,28 @@ func checkAuthConfig(username string, password string, apiKey string) error {
 // Warnings are displayed for any deprecated keys in the user's configuration file.
 func handleDeprecatedKeys(section *ini.Section) {
 	if section.HasKey("timeoutSeconds") {
-		fmt.Printf("WARNING: Section '%s' uses the deprecated key timeoutSeconds. Please update your config to use timeout_seconds instead.\n", section.Name())
+		log.Printf("WARNING: Section '%s' uses the deprecated key timeoutSeconds. Please update your config to use timeout_seconds instead.", section.Name())
 		if !section.HasKey("timeout_seconds") {
 			oldValue := section.Key("timeoutSeconds").Value()
 			section.Key("timeout_seconds").SetValue(oldValue)
 		}
 	}
+}
+
+// checkProtocolCompatibility returns an error if the protocol is incompatible with
+// the chosen client API: wsapi requires ws/wss, restapi requires http/https.
+func checkProtocolCompatibility(clientApi, protocol string) error {
+	switch clientApi {
+	case "wsapi":
+		if protocol != "ws" && protocol != "wss" {
+			return fmt.Errorf("client_api 'wsapi' requires protocol 'ws' or 'wss', got '%s'", protocol)
+		}
+	case "restapi":
+		if protocol != "http" && protocol != "https" {
+			return fmt.Errorf("client_api 'restapi' requires protocol 'http' or 'https', got '%s'", protocol)
+		}
+	}
+	return nil
 }
 
 // newDefaultConfig returns an instance of Config prepopulated with default values.
