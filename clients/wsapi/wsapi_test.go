@@ -19,8 +19,8 @@ package wsapi
 
 import (
 	"fmt"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"testing"
-	"tnascert-deploy/config"
 )
 
 func getConfig() (*config.Config, error) {

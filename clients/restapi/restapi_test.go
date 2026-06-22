@@ -20,11 +20,11 @@ package restapi
 import (
 	"bytes"
 	"fmt"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-	"tnascert-deploy/config"
 )
 
 // used for mock data responses.

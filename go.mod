@@ -1,4 +1,4 @@
-module tnascert-deploy
+module github.com/ramcguire/tnascert-deploy/v2
 
 go 1.25.0
 

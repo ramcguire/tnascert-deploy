@@ -23,6 +23,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -30,8 +32,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"tnascert-deploy/clients"
-	"tnascert-deploy/config"
 )
 
 const EndPoint = "/api/v2.0"

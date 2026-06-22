@@ -19,14 +19,17 @@ package main
 
 import (
 	"fmt"
-	"github.com/pborman/getopt/v2"
 	"log"
 	"os"
 	"runtime/debug"
-	"tnascert-deploy/clients"
-	"tnascert-deploy/clients/restapi"
-	"tnascert-deploy/clients/wsapi"
-	"tnascert-deploy/config"
+
+	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/clients/restapi"
+	"github.com/ramcguire/tnascert-deploy/v2/clients/wsapi"
+
+	"github.com/ramcguire/tnascert-deploy/v2/config"
+
+	"github.com/pborman/getopt/v2"
 )
 
 // application release

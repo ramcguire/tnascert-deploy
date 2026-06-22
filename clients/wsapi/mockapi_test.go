@@ -20,11 +20,11 @@ package wsapi
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"github.com/truenas/api_client_golang/truenas_api"
 	"log"
 	"strings"
 	"time"
-	"tnascert-deploy/config"
 )
 
 type MockWebSocketClient struct {

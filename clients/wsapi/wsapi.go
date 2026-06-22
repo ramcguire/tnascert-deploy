@@ -20,12 +20,12 @@ package wsapi
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"log"
 	"os"
 	"regexp"
 	"strings"
-	"tnascert-deploy/clients"
-	"tnascert-deploy/config"
 
 	"github.com/truenas/api_client_golang/truenas_api"
 )
