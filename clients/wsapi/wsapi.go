@@ -20,12 +20,13 @@ package wsapi
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ramcguire/tnascert-deploy/v2/clients"
-	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"log"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 
 	"github.com/truenas/api_client_golang/truenas_api"
 )
@@ -416,7 +417,7 @@ func getCertificateList(client *TrueNASWebSocket) error {
 	var response CertificateListResponse
 	err = json.Unmarshal(resp, &response)
 	if err != nil {
-		return fmt.Errorf("error unmarshalling certificate list response: %v", err)
+		return fmt.Errorf("error unmarshaling certificate list response: %v", err)
 	}
 
 	// range over the list obtained from the server and build up a local

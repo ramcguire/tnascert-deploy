@@ -81,7 +81,7 @@ func TestReadConfigs(t *testing.T) {
 	// test opening  non-existent file
 	cfgList, err = LoadConfig("non_existent_file")
 	if err == nil {
-		t.Errorf("exepected an error opening a non-existent file: %v", err)
+		t.Errorf("expected an error opening a non-existent file: %v", err)
 	}
 
 	// test nas02 config section

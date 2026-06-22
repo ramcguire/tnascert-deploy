@@ -22,7 +22,7 @@ The tool connects to the JSON-RPC 2.0 WebSocket API or RESTful v2.0 API endpoint
 
 **tnascert-deploy** utilizes an INI configuration file where multiple TrueNAS systems may be configured in separate sections of the file.  The user of the tool specifies one or more TrueNAS systems by their section name on the commandline defined in the configuration file in order to deploy certificates.
 
-The tool may be utilized as part of an ACME (Automated Certificate Management Environment) process to deploy new or renewal certficates to TrueNAS systems, see the [sample-scripts](/sample-scripts) directory for examples.  The command line usage is as follows:
+The tool may be utilized as part of an ACME (Automated Certificate Management Environment) process to deploy new or renewal certificates to TrueNAS systems, see the [sample-scripts](/sample-scripts) directory for examples.  The command line usage is as follows:
 
 ```
 Usage: tnascert-deploy [-hv] [-c value] config_section ... config_section
@@ -32,7 +32,7 @@ Usage: tnascert-deploy [-hv] [-c value] config_section ... config_section
 -v, --version print version information and exit
 ```
 
-Example to deploy certficates to two TrueNAS machines nas01 and nas02:
+Example to deploy certificates to two TrueNAS machines nas01 and nas02:
 
     $ tnascert-deploy -c /etc/tnas-cert.ini nas01 nas02
 
@@ -220,7 +220,7 @@ Support for **TrueNAS 25.04** systems or later, TrueNAS 24.10, TrueNAS-CORE, and
 ## See Also
 
 + [TrueNAS api_client_golang](https://github.com/truenas/api_client_golang)
-+ [TrueNAS websocket API documentaion](https://www.truenas.com/docs/api/scale_websocket_api.html)
++ [TrueNAS websocket API documentation](https://www.truenas.com/docs/api/scale_websocket_api.html)
 
 ## Sponsor
 

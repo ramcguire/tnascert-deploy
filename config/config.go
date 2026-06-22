@@ -146,7 +146,7 @@ func normaliseConfig(section *ini.Section) {
 	}
 }
 
-// ExpandEnvironmentVariables is a value mappper for ini.v1 that replaces expandEnvironmentVariables
+// ExpandEnvironmentVariables is a value mapper for ini.v1 that replaces expandEnvironmentVariables
 // in the format ${ENV_VAR} with the content of environment variable ENV_VAR
 //
 // It accepts a string and returns a string. If the environment variable is not found, an empty string is returned.
@@ -213,17 +213,10 @@ func handleDeprecatedKeys(section *ini.Section) {
 // newDefaultConfig returns an instance of Config prepopulated with default values.
 func newDefaultConfig() Config {
 	return Config{
-		AddAsAppCertificate: false,
-		AddAsFTPCertificate: false,
-		AddAsUiCertificate:  false,
-		CertBasename:        Default_base_cert_name,
-		ClientApi:           "wsapi",
-		Debug:               false,
-		DeleteOldCerts:      false,
-		Port:                Default_port,
-		Protocol:            Default_protocol,
-		StrictBasenameMatch: false,
-		TlsSkipVerify:       false,
-		TimeoutSeconds:      Default_timeout_seconds,
+		CertBasename:   Default_base_cert_name,
+		ClientApi:      "wsapi",
+		Port:           Default_port,
+		Protocol:       Default_protocol,
+		TimeoutSeconds: Default_timeout_seconds,
 	}
 }

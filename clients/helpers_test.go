@@ -19,8 +19,9 @@ package clients
 
 import (
 	"fmt"
-	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"testing"
+
+	"github.com/ramcguire/tnascert-deploy/v2/config"
 )
 
 func getConfig() (*config.Config, error) {
@@ -44,7 +45,7 @@ func TestVerifyCertificate(t *testing.T) {
 
 	err = VerifyCertificateKeyPair(cfg.FullChainPath, cfg.PrivateKeyPath)
 	if err != nil {
-		t.Errorf("VerifyCertificatKeyPair() test failed: %v", err)
+		t.Errorf("VerifyCertificateKeyPair() test failed: %v", err)
 	}
 
 }
