@@ -18,23 +18,14 @@
 package wsapi
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/ramcguire/tnascert-deploy/v2/clients/testhelpers"
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 )
 
 func getConfig() (*config.Config, error) {
-	configFile := "test_files/tnas-cert.ini"
-	cfgList, err := config.LoadConfig(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("error loading config file '%s'", configFile)
-	}
-	cfg, ok := cfgList["deploy_default"]
-	if !ok {
-		return nil, fmt.Errorf("invalid section 'deploy_default'")
-	}
-	return cfg, nil
+	return testhelpers.LoadConfig("test_files/tnas-cert.ini")
 }
 
 func TestAddAsAppCertificate(t *testing.T) {
@@ -50,7 +41,7 @@ func TestAddAsAppCertificate(t *testing.T) {
 	}
 
 	client.Version = "TrueNAS-SCALE-25.0.0.0"
-	err = addAsAppCertificate(client, "grafana")
+	err = client.addAsAppCertificate("grafana")
 	if err != nil {
 		t.Errorf("error adding app certificate: %v", err)
 	}
@@ -68,7 +59,7 @@ func TestAddAsFTPCertificate(t *testing.T) {
 		t.Fatalf("error creating the mock websocket client: %v", err)
 	}
 	certsList[cfg.CertName()] = 102
-	err = addAsFTPCertificate(*client)
+	err = client.addAsFTPCertificate()
 	if err != nil {
 		t.Errorf("error adding app certificate: %v", err)
 	}
@@ -86,7 +77,7 @@ func TestAddAsUICertificate(t *testing.T) {
 		t.Fatalf("error creating the mock websocket client: %v", err)
 	}
 	certsList[cfg.CertName()] = 102
-	err = addAsUICertificate(*client)
+	err = client.addAsUICertificate()
 	if err != nil {
 		t.Errorf("error adding app certificate: %v", err)
 	}
@@ -106,7 +97,7 @@ func TestDeleteCertificates(t *testing.T) {
 	certsList[cfg.CertName()] = 102
 	certsList["tnas-cert-deploy-2024-01-01-08080808"] = 101
 	certsList["tnas-cert-deploy-2024-02-01-09090909"] = 100
-	err = deleteCertificates(*client)
+	err = client.deleteCertificates()
 	if err != nil {
 		t.Errorf("error adding app certificate: %v", err)
 	}
@@ -210,7 +201,7 @@ func TestRestartUI(t *testing.T) {
 		t.Fatalf("error creating the mock websocket client: %v", err)
 	}
 
-	err = restartUI(client)
+	err = client.restartUI()
 	if err != nil {
 		t.Errorf("error testing app restart: %v", err)
 	}

@@ -25,7 +25,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/clients/certs"
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 
 	"github.com/truenas/api_client_golang/truenas_api"
@@ -76,13 +76,13 @@ func (c TrueNASWebSocket) Install() error {
 	certName = c.Cfg.CertName()
 
 	// import the certificate
-	err := importCertificate(&c)
+	err := c.importCertificate()
 	if err != nil {
 		return fmt.Errorf("could not import certificate: %v", err)
 	}
 
 	// collect a certificate list
-	err = getCertificateList(&c)
+	err = c.getCertificateList()
 	if err != nil {
 		return fmt.Errorf("could not get certificate list: %v", err)
 	}
@@ -114,7 +114,7 @@ func (c TrueNASWebSocket) Login() error {
 	return nil
 }
 
-func NewClient(cfg *config.Config) (clients.Client, error) {
+func NewClient(cfg *config.Config) (*TrueNASWebSocket, error) {
 	var verifySSL bool
 	if cfg.TlsSkipVerify == true {
 		verifySSL = false
@@ -127,22 +127,20 @@ func NewClient(cfg *config.Config) (clients.Client, error) {
 		return nil, fmt.Errorf("error: %v", err)
 	}
 
-	websocket_client := TrueNASWebSocket{
+	return &TrueNASWebSocket{
 		Url:       serverURL,
 		VerifySSL: verifySSL,
 		WSClient:  cl,
 		Cfg:       cfg,
-	}
-
-	return websocket_client, nil
+	}, nil
 }
 
-func (c TrueNASWebSocket) PostInstall() error {
+func (c *TrueNASWebSocket) PostInstall() error {
 	var activated bool = false
 	if c.Cfg.Debug {
 		log.Println("running post install tasks")
 	}
-	err := getSystemInfo(&c)
+	err := c.getSystemInfo()
 	if err != nil {
 		return fmt.Errorf("could not get system info: %v", err)
 	}
@@ -150,7 +148,7 @@ func (c TrueNASWebSocket) PostInstall() error {
 	// update the UI to use the newly
 	// imported certificate
 	if c.Cfg.AddAsUiCertificate {
-		err := addAsUICertificate(c)
+		err := c.addAsUICertificate()
 		if err != nil {
 			return fmt.Errorf("failed to set %s as the UI certificate: %v", certName, err)
 		}
@@ -160,7 +158,7 @@ func (c TrueNASWebSocket) PostInstall() error {
 	// update the FTP service to use the newly
 	// imported certificate
 	if c.Cfg.AddAsFTPCertificate {
-		err := addAsFTPCertificate(c)
+		err := c.addAsFTPCertificate()
 		if err != nil {
 			return fmt.Errorf("failed to set %s as the FTP certificate: %v", certName, err)
 		}
@@ -174,7 +172,7 @@ func (c TrueNASWebSocket) PostInstall() error {
 			if strings.HasPrefix(c.Version, "TrueNAS-SCALE") {
 				appList := strings.Split(c.Cfg.AppList, ",")
 				for _, app := range appList {
-					err := addAsAppCertificate(&c, strings.TrimSpace(app))
+					err := c.addAsAppCertificate(strings.TrimSpace(app))
 					if err != nil {
 						log.Printf("failed to add the '%s' certificate to the '%s' app: %v", certName, app, err)
 					}
@@ -187,14 +185,14 @@ func (c TrueNASWebSocket) PostInstall() error {
 
 	if activated {
 		if c.Cfg.DeleteOldCerts {
-			err := deleteCertificates(c)
+			err := c.deleteCertificates()
 			if err != nil {
 				log.Printf("error deleting old certificates: %v", err)
 			}
 		}
 
 		// restart the UI
-		err := restartUI(&c)
+		err := c.restartUI()
 		if err != nil {
 			return fmt.Errorf("failed to restart the UI")
 		}
@@ -203,17 +201,17 @@ func (c TrueNASWebSocket) PostInstall() error {
 	return nil
 }
 
-func (c TrueNASWebSocket) PreInstall() error {
+func (c *TrueNASWebSocket) PreInstall() error {
 	if c.Cfg.Debug {
 		log.Printf("running preinstall tasks")
 	}
 
-	err := getSystemInfo(&c)
+	err := c.getSystemInfo()
 	if err != nil {
 		return fmt.Errorf("could not get system info: %v", err)
 	}
 
-	err = clients.VerifyCertificateKeyPair(c.Cfg.FullChainPath, c.Cfg.PrivateKeyPath)
+	err = certs.VerifyCertificateKeyPair(c.Cfg.FullChainPath, c.Cfg.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed certificate verification: %v", err)
 	}
@@ -221,13 +219,12 @@ func (c TrueNASWebSocket) PreInstall() error {
 	return nil
 }
 
-func addAsAppCertificate(client *TrueNASWebSocket, appName string) error {
-	var args []interface{}
+func (c *TrueNASWebSocket) addAsAppCertificate(appName string) error {
+	args := []interface{}{appName}
 	var response map[string]interface{}
-	args = []interface{}{appName}
 	log.Printf("processing certificate update for the '%s' application\n", appName)
 
-	resp, err := client.WSClient.Call("app.config", client.Cfg.TimeoutSeconds, args)
+	resp, err := c.WSClient.Call("app.config", c.Cfg.TimeoutSeconds, args)
 	if err != nil {
 		log.Printf("error retrieving the app config for %s: %v", appName, err)
 		return nil
@@ -259,7 +256,7 @@ func addAsAppCertificate(client *TrueNASWebSocket, appName string) error {
 					"network": ntwkMap,
 				},
 			}
-			if client.Cfg.Debug {
+			if c.Cfg.Debug {
 				jsonData, err := json.Marshal(updateMap)
 				if err != nil {
 					log.Printf("error marshaling the update map for '%s' app: %v\n", appName, err)
@@ -267,8 +264,8 @@ func addAsAppCertificate(client *TrueNASWebSocket, appName string) error {
 				log.Printf("app update message for '%s': %s\n", appName, string(jsonData))
 			}
 			params := [2]interface{}{appName, updateMap}
-			job, err := client.WSClient.CallWithJob("app.update", params, func(progress float64, state string, desc string) {
-				if client.Cfg.Debug {
+			job, err := c.WSClient.CallWithJob("app.update", params, func(progress float64, state string, desc string) {
+				if c.Cfg.Debug {
 					log.Printf("job progress: %.2f%%, state: %s, description: %s", progress, state, desc)
 				}
 			})
@@ -281,7 +278,7 @@ func addAsAppCertificate(client *TrueNASWebSocket, appName string) error {
 			for !job.Finished {
 				select {
 				case progress := <-job.ProgressCh:
-					if client.Cfg.Debug {
+					if c.Cfg.Debug {
 						log.Printf("job progress: %.2f%%", progress)
 					}
 				case err := <-job.DoneCh:
@@ -301,8 +298,8 @@ func addAsAppCertificate(client *TrueNASWebSocket, appName string) error {
 	return nil
 }
 
-func addAsFTPCertificate(client TrueNASWebSocket) error {
-	var certName = client.Cfg.CertName()
+func (c *TrueNASWebSocket) addAsFTPCertificate() error {
+	var certName = c.Cfg.CertName()
 	ID, ok := certsList[certName]
 	if !ok {
 		return fmt.Errorf("certificate %s was not found in the certificates list", certName)
@@ -311,7 +308,7 @@ func addAsFTPCertificate(client TrueNASWebSocket) error {
 		"ssltls_certificate": ID,
 	}
 	args := []interface{}{pmap}
-	_, err := client.WSClient.Call("ftp.update", client.Cfg.TimeoutSeconds, args)
+	_, err := c.WSClient.Call("ftp.update", c.Cfg.TimeoutSeconds, args)
 	if err != nil {
 		return fmt.Errorf("updating the FTP service certificate failed, %v", err)
 	} else {
@@ -321,8 +318,8 @@ func addAsFTPCertificate(client TrueNASWebSocket) error {
 	return nil
 }
 
-func addAsUICertificate(client TrueNASWebSocket) error {
-	var certName = client.Cfg.CertName()
+func (c *TrueNASWebSocket) addAsUICertificate() error {
+	var certName = c.Cfg.CertName()
 	ID, ok := certsList[certName]
 	if !ok {
 		return fmt.Errorf("certificate %s was not found in the certificates list", certName)
@@ -331,39 +328,39 @@ func addAsUICertificate(client TrueNASWebSocket) error {
 		"ui_certificate": ID,
 	}
 	args := []interface{}{pmap}
-	_, err := client.WSClient.Call("system.general.update", client.Cfg.TimeoutSeconds, args)
+	_, err := c.WSClient.Call("system.general.update", c.Cfg.TimeoutSeconds, args)
 	if err != nil {
 		return fmt.Errorf("system.general.update of ui_certificate failed, %v", err)
 	}
 	return nil
 }
 
-func deleteCertificates(client TrueNASWebSocket) error {
-	var certName = client.Cfg.CertName()
+func (c *TrueNASWebSocket) deleteCertificates() error {
+	var certName = c.Cfg.CertName()
 	_, ok := certsList[certName]
 	if !ok {
 		return fmt.Errorf("certificate %s was not found in the certificates list", certName)
 	}
 
 	// Prepare regex
-	pattern := fmt.Sprintf(`^%s-\d{4}-\d{2}-\d{2}-\d+$`, regexp.QuoteMeta(client.Cfg.CertBasename))
+	pattern := fmt.Sprintf(`^%s-\d{4}-\d{2}-\d{2}-\d+$`, regexp.QuoteMeta(c.Cfg.CertBasename))
 	re := regexp.MustCompile(pattern)
 	var basenameMatch bool
 
 	for k, v := range certsList {
 		if strings.Compare(k, certName) == 0 {
-			if client.Cfg.Debug {
+			if c.Cfg.Debug {
 				log.Printf("skipping deletion of certificate %v", k)
 			}
 			continue
 		}
 		// skip if the certificate name prefix does not match the CertBasename
-		if client.Cfg.StrictBasenameMatch {
+		if c.Cfg.StrictBasenameMatch {
 			basenameMatch = re.MatchString(k)
-			log.Printf("Regex match %s against %s: %v", client.Cfg.CertBasename, k, basenameMatch)
+			log.Printf("Regex match %s against %s: %v", c.Cfg.CertBasename, k, basenameMatch)
 		} else {
-			basenameMatch = strings.HasPrefix(k, client.Cfg.CertBasename)
-			log.Printf("Prefix match %s against %s: %v", client.Cfg.CertBasename, k, basenameMatch)
+			basenameMatch = strings.HasPrefix(k, c.Cfg.CertBasename)
+			log.Printf("Prefix match %s against %s: %v", c.Cfg.CertBasename, k, basenameMatch)
 		}
 
 		if !basenameMatch {
@@ -371,15 +368,15 @@ func deleteCertificates(client TrueNASWebSocket) error {
 		}
 
 		arg := []int64{v}
-		job, err := client.WSClient.CallWithJob("certificate.delete", arg, func(progress float64, state string, desc string) {
-			if client.Cfg.Debug {
+		job, err := c.WSClient.CallWithJob("certificate.delete", arg, func(progress float64, state string, desc string) {
+			if c.Cfg.Debug {
 				log.Printf("job progress: %.2f%%, state: %s, description: %s", progress, state, desc)
 			}
 		})
 		if err != nil {
 			return fmt.Errorf("certificate deletion failed, %v", err)
 		}
-		if client.Cfg.Debug {
+		if c.Cfg.Debug {
 			log.Printf("deleting old certificate, job info: %v, ", job)
 		}
 		log.Printf("deleting old certificate %v, with job ID: %d", k, job.ID)
@@ -388,7 +385,7 @@ func deleteCertificates(client TrueNASWebSocket) error {
 		for !job.Finished {
 			select {
 			case progress := <-job.ProgressCh:
-				if client.Cfg.Debug {
+				if c.Cfg.Debug {
 					log.Printf("job progress: %.2f%%", progress)
 				}
 			case err := <-job.DoneCh:
@@ -404,14 +401,14 @@ func deleteCertificates(client TrueNASWebSocket) error {
 	return nil
 }
 
-func getCertificateList(client *TrueNASWebSocket) error {
+func (c *TrueNASWebSocket) getCertificateList() error {
 	var found = false
 	args := []interface{}{}
-	resp, err := client.WSClient.Call("app.certificate_choices", client.Cfg.TimeoutSeconds, args)
+	resp, err := c.WSClient.Call("app.certificate_choices", c.Cfg.TimeoutSeconds, args)
 	if err != nil {
 		return fmt.Errorf("certificate list request failed: %v", err)
 	}
-	if client.Cfg.Debug {
+	if c.Cfg.Debug {
 		log.Printf("received certificate list request response: %v", string(resp))
 	}
 	var response CertificateListResponse
@@ -425,7 +422,7 @@ func getCertificateList(client *TrueNASWebSocket) error {
 	for _, v := range response.Result {
 		var cert = v
 		_, ok := certsList[cert["name"].(string)]
-		if client.Cfg.Debug {
+		if c.Cfg.Debug {
 			log.Printf("certslist, cert: %s", cert["name"].(string))
 		}
 		// add certificate to the certificate list if not already there
@@ -435,9 +432,9 @@ func getCertificateList(client *TrueNASWebSocket) error {
 			idValue := cert["id"].(float64)
 			id := int64(idValue)
 			// only add certs that match the Cert_basename to the list
-			if strings.HasPrefix(name, client.Cfg.CertBasename) {
+			if strings.HasPrefix(name, c.Cfg.CertBasename) {
 				certsList[name] = id
-				if client.Cfg.Debug {
+				if c.Cfg.Debug {
 					log.Printf("cert list, name: %v, id: %d", cert["name"], id)
 				}
 			}
@@ -455,41 +452,40 @@ func getCertificateList(client *TrueNASWebSocket) error {
 	return nil
 }
 
-func getSystemInfo(client *TrueNASWebSocket) error {
-
-	res, err := client.WSClient.Call("system.info", 10, []interface{}{})
+func (c *TrueNASWebSocket) getSystemInfo() error {
+	res, err := c.WSClient.Call("system.info", c.Cfg.TimeoutSeconds, []interface{}{})
 	if err != nil {
-		log.Fatalf("failed to call system.info: %v", err)
+		return fmt.Errorf("system.info call failed: %w", err)
 	}
 
 	var respData interface{}
 	err = json.Unmarshal(res, &respData)
 	if err != nil {
-		return fmt.Errorf("getSystemInfo(): could not decode response: %v", err)
+		return fmt.Errorf("error decoding system info response: %w", err)
 	}
 	respMap, ok := respData.(map[string]interface{})
 	if ok {
 		resultMap := respMap["result"]
 		version := resultMap.(map[string]interface{})["version"]
-		client.Version = fmt.Sprintf("TrueNAS-SCALE-%s", version)
-		log.Printf("%s is running version '%s'", client.Cfg.ConnectHost, client.Version)
+		c.Version = fmt.Sprintf("TrueNAS-SCALE-%s", version)
+		log.Printf("%s is running version '%s'", c.Cfg.ConnectHost, c.Version)
 	} else {
-		log.Printf("unable to get the version of TrueNAS for '%s'", client.Cfg.ConnectHost)
+		log.Printf("unable to get the version of TrueNAS for '%s'", c.Cfg.ConnectHost)
 	}
 	return nil
 }
 
-func importCertificate(client *TrueNASWebSocket) error {
-	log.Printf("importing the %s certificate", client.Cfg.CertName())
-	certPem, err := os.ReadFile(client.Cfg.FullChainPath)
+func (c *TrueNASWebSocket) importCertificate() error {
+	log.Printf("importing the %s certificate", c.Cfg.CertName())
+	certPem, err := os.ReadFile(c.Cfg.FullChainPath)
 	if err != nil {
 		return fmt.Errorf("error reading the certificate file: %v", err)
 	}
-	keyPem, err := os.ReadFile(client.Cfg.PrivateKeyPath)
+	keyPem, err := os.ReadFile(c.Cfg.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("error reading the private key file: %v", err)
 	}
-	if err = client.WSClient.SubscribeToJobs(); err != nil {
+	if err = c.WSClient.SubscribeToJobs(); err != nil {
 		return fmt.Errorf("error subscribing to job notifications: %v", err)
 	}
 
@@ -502,8 +498,8 @@ func importCertificate(client *TrueNASWebSocket) error {
 	args := []interface{}{params}
 
 	// call the api to create and deploy the certificate
-	job, err := client.WSClient.CallWithJob("certificate.create", args, func(progress float64, state string, desc string) {
-		if client.Cfg.Debug {
+	job, err := c.WSClient.CallWithJob("certificate.create", args, func(progress float64, state string, desc string) {
+		if c.Cfg.Debug {
 			log.Printf("job progress: %.2f%%, state: %s, description: %s", progress, state, desc)
 		}
 	})
@@ -519,7 +515,7 @@ func importCertificate(client *TrueNASWebSocket) error {
 	for !job.Finished {
 		select {
 		case progress := <-job.ProgressCh:
-			if client.Cfg.Debug {
+			if c.Cfg.Debug {
 				log.Printf("job progress: %.2f%%", progress)
 			}
 		case err := <-job.DoneCh:
@@ -535,9 +531,9 @@ func importCertificate(client *TrueNASWebSocket) error {
 	return nil
 }
 
-func restartUI(client *TrueNASWebSocket) error {
+func (c *TrueNASWebSocket) restartUI() error {
 	args := []interface{}{}
-	_, err := client.WSClient.Call("system.general.ui_restart", client.Cfg.TimeoutSeconds, args)
+	_, err := c.WSClient.Call("system.general.ui_restart", c.Cfg.TimeoutSeconds, args)
 	if err != nil {
 		return fmt.Errorf("failed to restart the  UI: %v", err)
 	} else {

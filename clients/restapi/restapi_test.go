@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ramcguire/tnascert-deploy/v2/clients/testhelpers"
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 )
 
@@ -42,18 +43,8 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return m.Response, nil
 }
 
-// loads the test configuration.
 func getConfig() (*config.Config, error) {
-	configFile := "test_files/tnas-cert.ini"
-	cfgList, err := config.LoadConfig(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("error loading config file '%s'", configFile)
-	}
-	cfg, ok := cfgList["deploy_default"]
-	if !ok {
-		return nil, fmt.Errorf("invalid section 'deploy_default'")
-	}
-	return cfg, nil
+	return testhelpers.LoadConfig("test_files/tnas-cert.ini")
 }
 
 // builds and returns a new mock client with a round tripper to provide mock data responses
@@ -103,7 +94,7 @@ func TestAddAsUICertificate(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = addAsUICertificate(mockClient)
+	err = mockClient.addAsUICertificate()
 	if err != nil {
 		t.Errorf("addAsUICertificate() test failed: %v", err)
 	}
@@ -121,7 +112,7 @@ func TestAddAsFTPCertificate(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = addAsFTPCertificate(mockClient)
+	err = mockClient.addAsFTPCertificate()
 	if err != nil {
 		t.Errorf("addAsFTPCertificate() failed: %v", err)
 	}
@@ -193,7 +184,7 @@ func TestDeleteCertificate(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = deleteCertificates(mockClient)
+	err = mockClient.deleteCertificates()
 	if err != nil {
 		t.Errorf("deleteCertificate() test failed: %v", err)
 	}
@@ -218,7 +209,7 @@ func TestGetCertificateList(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = getCertificateList(mockClient)
+	err = mockClient.getCertificateList()
 	if err != nil {
 		t.Errorf("expected certificate to not be found in certificates list: %v", err)
 	}
@@ -226,7 +217,7 @@ func TestGetCertificateList(t *testing.T) {
 	mockRT = NewMockRoundTripper(http.StatusOK, certs)
 	mockClient, err = NewClientWithMockRoundTripper(cfg, mockRT)
 	certsList[certName] = 100
-	err = getCertificateList(mockClient)
+	err = mockClient.getCertificateList()
 	if err != nil {
 		t.Errorf("getCertificateList() test failed: %v", err)
 	}
@@ -245,7 +236,7 @@ func TestImportCertificate(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = importCertificate(mockClient)
+	err = mockClient.importCertificate()
 	if err != nil {
 		t.Errorf("importCertificate() test  failed: %v", err)
 	}
@@ -440,7 +431,7 @@ func TestRestartUI(t *testing.T) {
 	if err != nil {
 		t.Errorf("creating the mock client failed: %v", err)
 	}
-	err = restartUI(mockClient)
+	err = mockClient.restartUI()
 	if err != nil {
 		t.Errorf("restartUI() test failed: %v", err)
 	}

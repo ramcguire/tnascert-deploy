@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 	"github.com/truenas/api_client_golang/truenas_api"
@@ -200,7 +199,6 @@ func (m *MockWebSocketClient) SubscribeToJobs() error {
 }
 
 func jobRunner(job *truenas_api.Job) {
-	time.Sleep(2 * time.Second)
 	job.ProgressCh <- 100
 	job.DoneCh <- ""
 	job.Finished = true

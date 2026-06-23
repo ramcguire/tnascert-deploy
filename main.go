@@ -24,8 +24,6 @@ import (
 	"runtime/debug"
 
 	"github.com/ramcguire/tnascert-deploy/v2/clients"
-	"github.com/ramcguire/tnascert-deploy/v2/clients/restapi"
-	"github.com/ramcguire/tnascert-deploy/v2/clients/wsapi"
 
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 
@@ -35,23 +33,8 @@ import (
 // application release
 const release = "2.2"
 
-func NewClient(cfg *config.Config) (clients.Client, error) {
-	if cfg.ClientApi == "restapi" {
-		if cfg.Debug {
-			log.Printf("using a restapi client")
-		}
-		return restapi.NewClient(cfg)
-	} else if cfg.ClientApi == "wsapi" {
-		if cfg.Debug {
-			log.Printf("using a wsapi client")
-		}
-		return wsapi.NewClient(cfg)
-	}
-	return nil, fmt.Errorf("empty or undefined client api in the config for %s", cfg.ConnectHost)
-}
-
 func processSection(arg string, cfg *config.Config) error {
-	client, err := NewClient(cfg)
+	client, err := clients.New(cfg)
 	if err != nil {
 		return fmt.Errorf("error creating client for '%s': %w", arg, err)
 	}

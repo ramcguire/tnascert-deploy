@@ -17,6 +17,15 @@
 
 package clients
 
+import (
+	"fmt"
+	"log"
+
+	"github.com/ramcguire/tnascert-deploy/v2/clients/restapi"
+	"github.com/ramcguire/tnascert-deploy/v2/clients/wsapi"
+	"github.com/ramcguire/tnascert-deploy/v2/config"
+)
+
 /*
  * clients must implement this constructor
  * NewClient(cfg config.Config) (clients.Client, error)
@@ -29,4 +38,19 @@ type Client interface {
 	Install() error
 	PreInstall() error
 	PostInstall() error
+}
+
+func New(cfg *config.Config) (Client, error) {
+	if cfg.ClientApi == "restapi" {
+		if cfg.Debug {
+			log.Printf("using a restapi client")
+		}
+		return restapi.NewClient(cfg)
+	} else if cfg.ClientApi == "wsapi" {
+		if cfg.Debug {
+			log.Printf("using a wsapi client")
+		}
+		return wsapi.NewClient(cfg)
+	}
+	return nil, fmt.Errorf("empty or undefined client api in the config for %s", cfg.ConnectHost)
 }

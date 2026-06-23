@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package clients
+package certs
 
 import (
 	"crypto/tls"

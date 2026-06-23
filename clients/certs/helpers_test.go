@@ -15,26 +15,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package clients
+package certs
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/ramcguire/tnascert-deploy/v2/clients/testhelpers"
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 )
 
 func getConfig() (*config.Config, error) {
-	configFile := "test_files/tnas-cert.ini"
-	cfgList, err := config.LoadConfig(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("error loading config file '%s'", configFile)
-	}
-	cfg, ok := cfgList["deploy_default"]
-	if !ok {
-		return nil, fmt.Errorf("invalid section 'deploy_default'")
-	}
-	return cfg, nil
+	return testhelpers.LoadConfig(testhelpers.SharedIniPath())
 }
 
 func TestVerifyCertificate(t *testing.T) {
@@ -47,5 +38,4 @@ func TestVerifyCertificate(t *testing.T) {
 	if err != nil {
 		t.Errorf("VerifyCertificateKeyPair() test failed: %v", err)
 	}
-
 }

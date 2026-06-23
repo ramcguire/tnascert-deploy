@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ramcguire/tnascert-deploy/v2/clients"
+	"github.com/ramcguire/tnascert-deploy/v2/clients/certs"
 	"github.com/ramcguire/tnascert-deploy/v2/config"
 )
 
@@ -85,13 +85,13 @@ func (c *TrueNASRest) Install() error {
 	certName = c.Cfg.CertName()
 
 	// import the certificate
-	err := importCertificate(c)
+	err := c.importCertificate()
 	if err != nil {
 		return fmt.Errorf("could not import certificate: %v", err)
 	}
 
 	// collect a certificate list
-	err = getCertificateList(c)
+	err = c.getCertificateList()
 	if err != nil {
 		return fmt.Errorf("could not get certificate list: %v", err)
 	}
@@ -116,7 +116,7 @@ func (c *TrueNASRest) Login() error {
 }
 
 // constructor
-func NewClient(cfg *config.Config) (clients.Client, error) {
+func NewClient(cfg *config.Config) (*TrueNASRest, error) {
 	var authToken string
 	var durationFromSeconds time.Duration = time.Duration(cfg.TimeoutSeconds) * time.Second
 	serverURL := strings.TrimRight(cfg.ServerURL(), "/") + EndPoint
@@ -170,7 +170,7 @@ func (c *TrueNASRest) PostInstall() error {
 	// update the UI to use the newly
 	// imported certificate
 	if c.Cfg.AddAsUiCertificate {
-		err := addAsUICertificate(c)
+		err := c.addAsUICertificate()
 		if err != nil {
 			return fmt.Errorf("failed to set %s as the UI certificate: %v", certName, err)
 		}
@@ -180,7 +180,7 @@ func (c *TrueNASRest) PostInstall() error {
 	// update the FTP service to use the newly
 	// imported certificate
 	if c.Cfg.AddAsFTPCertificate {
-		err := addAsFTPCertificate(c)
+		err := c.addAsFTPCertificate()
 		if err != nil {
 			return fmt.Errorf("failed to set %s as the FTP certificate: %v", certName, err)
 		}
@@ -210,7 +210,7 @@ func (c *TrueNASRest) PostInstall() error {
 			// give a wait of 5 seconds before deleting old certificates.
 			// to insure app updates have completed.
 			time.Sleep(5 * time.Second)
-			err := deleteCertificates(c)
+			err := c.deleteCertificates()
 			if err != nil {
 				return fmt.Errorf("error deleting old certificates: %v", err)
 			} else {
@@ -219,7 +219,7 @@ func (c *TrueNASRest) PostInstall() error {
 		}
 
 		// restart the UI
-		err := restartUI(c)
+		err := c.restartUI()
 		if err != nil {
 			return fmt.Errorf("failed to restart the UI")
 		} else {
@@ -234,12 +234,12 @@ func (c *TrueNASRest) PreInstall() error {
 		log.Println("running preinstall tasks")
 	}
 
-	err := getSystemInfo(c)
+	err := c.getSystemInfo()
 	if err != nil {
 		return fmt.Errorf("could not get system info: %v", err)
 	}
 
-	err = clients.VerifyCertificateKeyPair(c.Cfg.FullChainPath, c.Cfg.PrivateKeyPath)
+	err = certs.VerifyCertificateKeyPair(c.Cfg.FullChainPath, c.Cfg.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed certificate verification: %v", err)
 	}
@@ -321,7 +321,7 @@ func (c *TrueNASRest) addAsAppCertificate(appName string) error {
 	return nil
 }
 
-func addAsFTPCertificate(c *TrueNASRest) error {
+func (c *TrueNASRest) addAsFTPCertificate() error {
 	if id, ok := certsList[certName]; ok {
 		data := struct {
 			CertId int64 `json:"ssltls_certificate"`
@@ -344,7 +344,7 @@ func addAsFTPCertificate(c *TrueNASRest) error {
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("FTP update request failed: %v", resp.Status)
 		} else {
-			// wait 5 seconds for the imported certifcate to become available
+			// wait 5 seconds for the imported certificate to become available
 			time.Sleep(5 * time.Second)
 			log.Printf("updated the active FTP certificate to use %s", certName)
 		}
@@ -355,7 +355,7 @@ func addAsFTPCertificate(c *TrueNASRest) error {
 	return nil
 }
 
-func addAsUICertificate(client *TrueNASRest) error {
+func (c *TrueNASRest) addAsUICertificate() error {
 	if id, ok := certsList[certName]; ok {
 		data := struct {
 			CertId int64 `json:"ui_certificate"`
@@ -367,18 +367,18 @@ func addAsUICertificate(client *TrueNASRest) error {
 			return fmt.Errorf("could not marshal ui update message: %v", err)
 		}
 		// update active UI certificate
-		req, err := http.NewRequest(http.MethodPut, client.Url+"/system/general", bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest(http.MethodPut, c.Url+"/system/general", bytes.NewBuffer(jsonData))
 		if err != nil {
 			return fmt.Errorf("error creating UI update request: %v", err)
 		}
-		resp, err := client.HttpClient.Do(req)
+		resp, err := c.HttpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("error executing the active UI update request: %v", err)
 		}
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("UI update request failed: %v", resp.Status)
 		} else {
-			// wait 5 seconds for the imported certifcate to become available
+			// wait 5 seconds for the imported certificate to become available
 			time.Sleep(5 * time.Second)
 			log.Printf("updated the active UI certificate to use %s", certName)
 		}
@@ -389,11 +389,11 @@ func addAsUICertificate(client *TrueNASRest) error {
 	return nil
 }
 
-func deleteCertificates(client *TrueNASRest) error {
-	log.Printf("deleting old certificates with prefix '%s'", client.Cfg.CertBasename)
+func (c *TrueNASRest) deleteCertificates() error {
+	log.Printf("deleting old certificates with prefix '%s'", c.Cfg.CertBasename)
 
 	// Prepare regex
-	pattern := fmt.Sprintf(`^%s-\d{4}-\d{2}-\d{2}-\d+$`, regexp.QuoteMeta(client.Cfg.CertBasename))
+	pattern := fmt.Sprintf(`^%s-\d{4}-\d{2}-\d{2}-\d+$`, regexp.QuoteMeta(c.Cfg.CertBasename))
 	re := regexp.MustCompile(pattern)
 	var basenameMatch bool
 
@@ -402,18 +402,18 @@ func deleteCertificates(client *TrueNASRest) error {
 			log.Printf("skip the deletion of the active UI certificate %s", certName)
 			continue
 		}
-		if client.Cfg.StrictBasenameMatch {
+		if c.Cfg.StrictBasenameMatch {
 			basenameMatch = re.MatchString(k)
-			log.Printf("Regex match %s against %s: %v", client.Cfg.CertBasename, k, basenameMatch)
+			log.Printf("Regex match %s against %s: %v", c.Cfg.CertBasename, k, basenameMatch)
 		} else {
-			basenameMatch = strings.HasPrefix(k, client.Cfg.CertBasename)
-			log.Printf("Prefix match %s against %s: %v", client.Cfg.CertBasename, k, basenameMatch)
+			basenameMatch = strings.HasPrefix(k, c.Cfg.CertBasename)
+			log.Printf("Prefix match %s against %s: %v", c.Cfg.CertBasename, k, basenameMatch)
 		}
 
 		if basenameMatch {
-			URL := fmt.Sprintf("%s/certificate/id/%d", client.Url, v)
+			URL := fmt.Sprintf("%s/certificate/id/%d", c.Url, v)
 			r, err := http.NewRequest(http.MethodDelete, URL, nil)
-			resp, err := client.HttpClient.Do(r)
+			resp, err := c.HttpClient.Do(r)
 			if err != nil {
 				return fmt.Errorf("error executing certificate deletion: %v", err)
 			}
@@ -429,15 +429,15 @@ func deleteCertificates(client *TrueNASRest) error {
 	return nil
 }
 
-func getCertificateList(client *TrueNASRest) error {
+func (c *TrueNASRest) getCertificateList() error {
 	// fetch the list a list of certificates
 	var respData interface{}
 	// certificate list get request
-	req, err := http.NewRequest(http.MethodGet, client.Url+"/certificate?limit=0", nil)
+	req, err := http.NewRequest(http.MethodGet, c.Url+"/certificate?limit=0", nil)
 	if err != nil {
 		return fmt.Errorf("error creating certificate list request: %v", err)
 	}
-	resp, err := client.HttpClient.Do(req)
+	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error executing certificate list request: %v", err)
 	}
@@ -469,15 +469,15 @@ func getCertificateList(client *TrueNASRest) error {
 	return nil
 }
 
-func getSystemInfo(client *TrueNASRest) error {
+func (c *TrueNASRest) getSystemInfo() error {
 	// fetch the system information.
 	var respData interface{}
 	// system info request
-	req, err := http.NewRequest(http.MethodGet, client.Url+"/system/info", nil)
+	req, err := http.NewRequest(http.MethodGet, c.Url+"/system/info", nil)
 	if err != nil {
 		return fmt.Errorf("error creating system info request: %v", err)
 	}
-	resp, err := client.HttpClient.Do(req)
+	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error executing system info request: %v", err)
 	}
@@ -493,22 +493,22 @@ func getSystemInfo(client *TrueNASRest) error {
 	vmap, ok := respData.(map[string]interface{})
 	if ok {
 		version := vmap["version"]
-		client.Version = version.(string)
-		log.Printf("%s is running version '%s'", client.Cfg.ConnectHost, client.Version)
+		c.Version = version.(string)
+		log.Printf("%s is running version '%s'", c.Cfg.ConnectHost, c.Version)
 	} else {
-		log.Printf("%s unable to get the version of TrueNAS", client.Cfg.ConnectHost)
+		log.Printf("%s unable to get the version of TrueNAS", c.Cfg.ConnectHost)
 	}
 	return nil
 
 }
 
-func importCertificate(client *TrueNASRest) error {
-	log.Printf("importing the %s certificate", client.Cfg.CertName())
-	certPem, err := os.ReadFile(client.Cfg.FullChainPath)
+func (c *TrueNASRest) importCertificate() error {
+	log.Printf("importing the %s certificate", c.Cfg.CertName())
+	certPem, err := os.ReadFile(c.Cfg.FullChainPath)
 	if err != nil {
 		return fmt.Errorf("error reading the certificate file: %v", err)
 	}
-	keyPem, err := os.ReadFile(client.Cfg.PrivateKeyPath)
+	keyPem, err := os.ReadFile(c.Cfg.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("error reading the private key file: %v", err)
 	}
@@ -530,18 +530,18 @@ func importCertificate(client *TrueNASRest) error {
 	}
 
 	// certificate import post request
-	req, err := http.NewRequest(http.MethodPost, client.Url+"/certificate", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(http.MethodPost, c.Url+"/certificate", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating certificate import request: %v", err)
 	}
-	resp, err := client.HttpClient.Do(req)
+	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error executing the import request: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("certificate import request failed: %v", resp.Status)
 	} else {
-		// wait 5 seconds for the imported certifcate to become available
+		// wait 5 seconds for the imported certificate to become available
 		time.Sleep(5 * time.Second)
 		log.Printf("successfully imported the %s certificate", certName)
 	}
@@ -550,13 +550,13 @@ func importCertificate(client *TrueNASRest) error {
 	return nil
 }
 
-func restartUI(client *TrueNASRest) error {
+func (c *TrueNASRest) restartUI() error {
 	// restart the UI request
-	req, err := http.NewRequest(http.MethodGet, client.Url+"/system/general/ui_restart", nil)
+	req, err := http.NewRequest(http.MethodGet, c.Url+"/system/general/ui_restart", nil)
 	if err != nil {
 		return fmt.Errorf("error creating the UI restart request: %v", err)
 	}
-	resp, err := client.HttpClient.Do(req)
+	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error executing the UI restart request: %v", err)
 	}
