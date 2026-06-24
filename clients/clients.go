@@ -41,12 +41,13 @@ type Client interface {
 }
 
 func New(cfg *config.Config) (Client, error) {
-	if cfg.ClientApi == "restapi" {
+	switch cfg.ClientApi {
+	case "restapi":
 		if cfg.Debug {
 			log.Printf("using a restapi client")
 		}
 		return restapi.NewClient(cfg)
-	} else if cfg.ClientApi == "wsapi" {
+	case "wsapi":
 		if cfg.Debug {
 			log.Printf("using a wsapi client")
 		}

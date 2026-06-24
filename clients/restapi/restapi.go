@@ -104,13 +104,16 @@ func (c *TrueNASRest) Login() error {
 	}
 
 	r, err := http.NewRequest(http.MethodGet, c.Url+"/core/ping", nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	res, err := c.HttpClient.Do(r)
 	if err != nil {
-		return fmt.Errorf("login error %v", err)
+		return fmt.Errorf("login request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
-		return fmt.Errorf("login error: %v", res.Status)
+		return fmt.Errorf("non-200 login status: %d - %s", res.StatusCode, res.Status)
 	}
 	return nil
 }
@@ -118,7 +121,7 @@ func (c *TrueNASRest) Login() error {
 // constructor
 func NewClient(cfg *config.Config) (*TrueNASRest, error) {
 	var authToken string
-	var durationFromSeconds time.Duration = time.Duration(cfg.TimeoutSeconds) * time.Second
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	serverURL := strings.TrimRight(cfg.ServerURL(), "/") + EndPoint
 
 	if cfg.ApiKey != "" {
@@ -148,7 +151,7 @@ func NewClient(cfg *config.Config) (*TrueNASRest, error) {
 
 	httpClient := &http.Client{
 		Transport: authTransport,
-		Timeout:   durationFromSeconds,
+		Timeout:   timeout,
 		Jar:       jar,
 	}
 
@@ -162,7 +165,7 @@ func NewClient(cfg *config.Config) (*TrueNASRest, error) {
 }
 
 func (c *TrueNASRest) PostInstall() error {
-	var activated bool = false
+	activated := false
 	if c.Cfg.Debug {
 		log.Println("running post install tasks")
 	}
@@ -263,7 +266,7 @@ func (c *TrueNASRest) addAsAppCertificate(appName string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("application configuration request for '%s' failed: %v", appName, resp.Status)
 	}
-	var respData interface{}
+	var respData any
 	err = json.NewDecoder(resp.Body).Decode(&respData)
 	if err != nil {
 		return fmt.Errorf("error decoding the application config info: %v", err)
@@ -271,22 +274,25 @@ func (c *TrueNASRest) addAsAppCertificate(appName string) error {
 
 	// check the App for an existing certificate.  If it's not currently using one, we are not going
 	// to add one to the App
-	cMap, ok := respData.(map[string]interface{})
+	cMap, ok := respData.(map[string]any)
+	if !ok {
+		return fmt.Errorf("unexpected format in app config response for '%s'", appName)
+	}
 	nMap, ok := cMap["network"]
 	if ok {
-		cfg := nMap.(map[string]interface{})
+		cfg := nMap.(map[string]any)
 		v, found := cfg["certificate_id"]
 		if v == nil || !found {
 			log.Printf("the '%s' application is currently not using a certificate, will not add one", appName)
 			return nil
 		}
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
-	if m, ok := nMap.(map[string]interface{}); ok {
+	if m, ok := nMap.(map[string]any); ok {
 		certId := certsList[certName]
 		m["certificate_id"] = certId
-		uMap := map[string]map[string]interface{}{
+		uMap := map[string]map[string]any{
 			"values": {
 				"network": m,
 			},
@@ -310,12 +316,12 @@ func (c *TrueNASRest) addAsAppCertificate(appName string) error {
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("the application update request for '%s' failed: %v", appName, resp.Status)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		time.Sleep(5 * time.Second)
 		log.Printf("updated the  certificate for application '%s' to use %s", appName, certName)
 	} else {
-		return fmt.Errorf("error obtaining the network configuration for '%s'\n", appName)
+		return fmt.Errorf("obtaining the network configuration for '%s'", appName)
 	}
 
 	return nil
@@ -348,7 +354,7 @@ func (c *TrueNASRest) addAsFTPCertificate() error {
 			time.Sleep(5 * time.Second)
 			log.Printf("updated the active FTP certificate to use %s", certName)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	} else {
 		return fmt.Errorf("%s was not found, cannot add it as FTP certificate", certName)
 	}
@@ -382,7 +388,7 @@ func (c *TrueNASRest) addAsUICertificate() error {
 			time.Sleep(5 * time.Second)
 			log.Printf("updated the active UI certificate to use %s", certName)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	} else {
 		return fmt.Errorf("%s was not found, cannot add it as UI certificate", certName)
 	}
@@ -413,16 +419,18 @@ func (c *TrueNASRest) deleteCertificates() error {
 		if basenameMatch {
 			URL := fmt.Sprintf("%s/certificate/id/%d", c.Url, v)
 			r, err := http.NewRequest(http.MethodDelete, URL, nil)
+			if err != nil {
+				return fmt.Errorf("error creating certificate delete request: %v", err)
+			}
 			resp, err := c.HttpClient.Do(r)
 			if err != nil {
 				return fmt.Errorf("error executing certificate deletion: %v", err)
 			}
+			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("error deleting certificate %s: %v", certName, resp.Status)
-			} else {
-				log.Printf("deleted certificate %s", k)
 			}
-			defer resp.Body.Close()
+			log.Printf("deleted certificate %s", k)
 		}
 	}
 
@@ -431,7 +439,7 @@ func (c *TrueNASRest) deleteCertificates() error {
 
 func (c *TrueNASRest) getCertificateList() error {
 	// fetch the list a list of certificates
-	var respData interface{}
+	var respData any
 	// certificate list get request
 	req, err := http.NewRequest(http.MethodGet, c.Url+"/certificate?limit=0", nil)
 	if err != nil {
@@ -444,15 +452,15 @@ func (c *TrueNASRest) getCertificateList() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("certificate list request failed: %v", resp.Status)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	err = json.NewDecoder(resp.Body).Decode(&respData)
 	if err != nil {
 		return fmt.Errorf("error decoding the certificate list: %v", err)
 	}
 	// parse the response and build the certificates list
-	for _, v := range respData.([]interface{}) {
-		if t, ok := v.(map[string]interface{}); ok {
+	for _, v := range respData.([]any) {
+		if t, ok := v.(map[string]any); ok {
 			name := t["name"].(string)
 			idi := t["id"]
 			id := int64(idi.(float64))
@@ -471,7 +479,7 @@ func (c *TrueNASRest) getCertificateList() error {
 
 func (c *TrueNASRest) getSystemInfo() error {
 	// fetch the system information.
-	var respData interface{}
+	var respData any
 	// system info request
 	req, err := http.NewRequest(http.MethodGet, c.Url+"/system/info", nil)
 	if err != nil {
@@ -484,13 +492,13 @@ func (c *TrueNASRest) getSystemInfo() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("system info request failed: %v", resp.Status)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	err = json.NewDecoder(resp.Body).Decode(&respData)
 	if err != nil {
 		return fmt.Errorf("error decoding the system info: %v", err)
 	}
-	vmap, ok := respData.(map[string]interface{})
+	vmap, ok := respData.(map[string]any)
 	if ok {
 		version := vmap["version"]
 		c.Version = version.(string)
@@ -545,7 +553,7 @@ func (c *TrueNASRest) importCertificate() error {
 		time.Sleep(5 * time.Second)
 		log.Printf("successfully imported the %s certificate", certName)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return nil
 }
@@ -563,7 +571,7 @@ func (c *TrueNASRest) restartUI() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to restart the UI: %v", resp.Status)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return nil
 }

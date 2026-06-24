@@ -36,7 +36,7 @@ func VerifyCertificateKeyPair(cert_path string, key_path string) error {
 		return fmt.Errorf("certificate parsing error: %v", err)
 	}
 	if time.Now().After(c.NotAfter) {
-		return fmt.Errorf("Your certificate expired, a new up to date certificate is needed")
+		return fmt.Errorf("certificate expired, a new up to date certificate is needed")
 	}
 
 	roots, err := x509.SystemCertPool()

@@ -128,6 +128,9 @@ func TestClientLogin(t *testing.T) {
 	// 200 ok response
 	mockRT := NewMockRoundTripper(http.StatusOK, `{"pong"}`)
 	mockClient, err := NewClientWithMockRoundTripper(cfg, mockRT)
+	if err != nil {
+		t.Fatalf("creating the mock client failed: %v", err)
+	}
 
 	// 200 response
 	err = mockClient.Login()
@@ -138,6 +141,9 @@ func TestClientLogin(t *testing.T) {
 	// 401 response
 	mockRT = NewMockRoundTripper(http.StatusUnauthorized, `{"unauthorized"}`)
 	mockClient, err = NewClientWithMockRoundTripper(cfg, mockRT)
+	if err != nil {
+		t.Fatalf("creating the mock client failed: %v", err)
+	}
 	err = mockClient.Login()
 	if err == nil {
 		t.Errorf("expected a login failure: %v", err)
@@ -216,6 +222,9 @@ func TestGetCertificateList(t *testing.T) {
 
 	mockRT = NewMockRoundTripper(http.StatusOK, certs)
 	mockClient, err = NewClientWithMockRoundTripper(cfg, mockRT)
+	if err != nil {
+		t.Fatalf("creating the mock client failed: %v", err)
+	}
 	certsList[certName] = 100
 	err = mockClient.getCertificateList()
 	if err != nil {
@@ -414,6 +423,9 @@ func TestPreInstall(t *testing.T) {
 
 	mockRT := NewMockRoundTripper(http.StatusOK, versionBody)
 	mockClient, err := NewClientWithMockRoundTripper(cfg, mockRT)
+	if err != nil {
+		t.Fatalf("creating the mock client failed: %v", err)
+	}
 	err = mockClient.PreInstall()
 	if err != nil {
 		t.Errorf("PreInstall() test failed: %v", err)

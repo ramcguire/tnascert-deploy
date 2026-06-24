@@ -18,206 +18,201 @@
 package config
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestLoadConfig(t *testing.T) {
-	configFile := "test_files/tnas-loadconfig.ini"
-
-	cfg_list, err := LoadConfig(configFile)
+	cfgList, err := LoadConfig("test_files/tnas-loadconfig.ini")
 	if err != nil {
-		t.Errorf("loading the test config failed with error: %v", err)
+		t.Fatalf("loading the test config failed: %v", err)
 	}
-	if len(cfg_list) != 3 {
-		t.Errorf("the config list size should be 3")
+	if len(cfgList) != 3 {
+		t.Fatalf("expected 3 config sections, got %d", len(cfgList))
 	}
-	if cfg_list["deploy_default"].ConnectHost != "nas01.mydomain.com" {
-		t.Errorf("connect_host should be nas01.mydomain.com")
+
+	tests := []struct {
+		section string
+		host    string
+	}{
+		{"deploy_default", "nas01.mydomain.com"},
+		{"nas02", "nas02.mydomain.com"},
+		{"nas03", "nas03.mydomain.com"},
 	}
-	if cfg_list["nas02"].ConnectHost != "nas02.mydomain.com" {
-		t.Errorf("connect_host should be nas02.mydomain.com")
-	}
-	if cfg_list["nas03"].ConnectHost != "nas03.mydomain.com" {
-		t.Errorf("connect_host should be nas03.mydomain.com")
+	for _, tt := range tests {
+		t.Run(tt.section, func(t *testing.T) {
+			cfg, ok := cfgList[tt.section]
+			if !ok {
+				t.Fatalf("section %q not found", tt.section)
+			}
+			if cfg.ConnectHost != tt.host {
+				t.Errorf("ConnectHost: got %q, want %q", cfg.ConnectHost, tt.host)
+			}
+		})
 	}
 }
 
 func TestReadConfigs(t *testing.T) {
-	configFile := "test_files/tnas-cert.ini"
+	t.Run("error on non-existent file", func(t *testing.T) {
+		_, err := LoadConfig("non_existent_file")
+		if err == nil {
+			t.Error("expected an error loading a non-existent file")
+		}
+	})
 
-	// test loading the default config section
-	cfgList, err := LoadConfig(configFile)
+	cfgList, err := LoadConfig("test_files/tnas-cert.ini")
 	if err != nil {
-		t.Errorf("loading the test config failed with error: %v", err)
-	}
-	cfg, ok := cfgList["deploy_default"]
-	if !ok {
-		t.Fatalf("invalid section 'deploy_default'")
-	}
-	if cfg.ConnectHost != "nas01.mydomain.com" {
-		t.Errorf("connect_host should be nas01.mydomain.com")
-	}
-	if cfg.PrivateKeyPath != "test_files/privkey.pem" {
-		t.Errorf("private_key_path should be test_files/privkey.pem")
-	}
-	if cfg.FullChainPath != "test_files/fullchain.pem" {
-		t.Errorf("fullchain_path should be test_files/fullchain.pem")
-	}
-	if cfg.Protocol != "wss" {
-		t.Errorf("protocol should be wss")
-	}
-	if cfg.TlsSkipVerify != false {
-		t.Errorf("tls_skip_verify should be false")
-	}
-	if cfg.DeleteOldCerts != true {
-		t.Errorf("delete_old_certs should be true")
-	}
-	if cfg.AddAsUiCertificate != true {
-		t.Errorf("add_as_ui_certificate should be true")
+		t.Fatalf("loading the test config failed: %v", err)
 	}
 
-	// test opening  non-existent file
-	cfgList, err = LoadConfig("non_existent_file")
-	if err == nil {
-		t.Errorf("expected an error opening a non-existent file: %v", err)
-	}
+	t.Run("deploy_default", func(t *testing.T) {
+		cfg, ok := cfgList["deploy_default"]
+		if !ok {
+			t.Fatal("section 'deploy_default' not found")
+		}
+		tests := []struct {
+			name string
+			got  any
+			want any
+		}{
+			{"ConnectHost", cfg.ConnectHost, "nas01.mydomain.com"},
+			{"PrivateKeyPath", cfg.PrivateKeyPath, "test_files/privkey.pem"},
+			{"FullChainPath", cfg.FullChainPath, "test_files/fullchain.pem"},
+			{"Protocol", cfg.Protocol, "wss"},
+			{"TlsSkipVerify", cfg.TlsSkipVerify, false},
+			{"DeleteOldCerts", cfg.DeleteOldCerts, true},
+			{"AddAsUiCertificate", cfg.AddAsUiCertificate, true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if tt.got != tt.want {
+					t.Errorf("got %v, want %v", tt.got, tt.want)
+				}
+			})
+		}
+	})
 
-	// test nas02 config section
-	if cfgList, err = LoadConfig(configFile); err != nil {
-		t.Errorf("loading the test config failed with error: %v", err)
-	}
-	cfg, ok = cfgList["nas02"]
-	if cfg == nil && !ok {
-		t.Errorf("section 'nas02' does not exist")
-	}
-	if cfg.ConnectHost != "nas02.mydomain.com" {
-		t.Errorf("connect_host should be nas02.mydomain.com")
-	}
-	serverURL := cfg.ServerURL() + "/api/current"
-	if serverURL != "wss://nas02.mydomain.com:443/api/current" {
-		t.Errorf("ServerURL should be wss://nas02.mydomain.com:443/api/current")
-	}
+	t.Run("nas02", func(t *testing.T) {
+		cfg, ok := cfgList["nas02"]
+		if !ok {
+			t.Fatal("section 'nas02' not found")
+		}
+		if cfg.ConnectHost != "nas02.mydomain.com" {
+			t.Errorf("ConnectHost: got %q, want %q", cfg.ConnectHost, "nas02.mydomain.com")
+		}
+		wantURL := "wss://nas02.mydomain.com:443/api/current"
+		if got := cfg.ServerURL() + "/api/current"; got != wantURL {
+			t.Errorf("ServerURL: got %q, want %q", got, wantURL)
+		}
+		if !strings.HasPrefix(cfg.CertName(), "letsencrypt-") {
+			t.Errorf("CertName: got %q, want prefix %q", cfg.CertName(), "letsencrypt-")
+		}
+	})
 
-	certName := cfg.CertName()
-	if strings.HasPrefix(certName, "letsencrypt-") == false {
-		t.Errorf("certname prefix should be letsencrypt-")
-	}
+	t.Run("nas03", func(t *testing.T) {
+		cfg, ok := cfgList["nas03"]
+		if !ok {
+			t.Fatal("section 'nas03' not found")
+		}
+		if cfg.ConnectHost != "nas03.mydomain.com" {
+			t.Errorf("ConnectHost: got %q, want %q", cfg.ConnectHost, "nas03.mydomain.com")
+		}
+	})
 
-	// test nas03 config section
-	if cfgList, err = LoadConfig(configFile); err != nil {
-		t.Errorf("loading the test config failed with error: %v", err)
+	defaultTests := []struct {
+		section string
+		check   func(t *testing.T, cfg *Config)
+	}{
+		{
+			"no_cert_basename",
+			func(t *testing.T, cfg *Config) {
+				if cfg.CertBasename != Default_base_cert_name {
+					t.Errorf("CertBasename: got %q, want %q", cfg.CertBasename, Default_base_cert_name)
+				}
+			},
+		},
+		{
+			"no_protocol",
+			func(t *testing.T, cfg *Config) {
+				if cfg.Protocol != Default_protocol {
+					t.Errorf("Protocol: got %q, want %q", cfg.Protocol, Default_protocol)
+				}
+			},
+		},
+		{
+			"no_timeout_seconds",
+			func(t *testing.T, cfg *Config) {
+				if cfg.TimeoutSeconds != Default_timeout_seconds {
+					t.Errorf("TimeoutSeconds: got %d, want %d", cfg.TimeoutSeconds, Default_timeout_seconds)
+				}
+			},
+		},
 	}
-	cfg, ok = cfgList["nas03"]
-	if !ok {
-		t.Errorf("invalid section 'nas03'")
-	}
-	if cfg.ConnectHost != "nas03.mydomain.com" {
-		t.Errorf("connect_host should be nas02.mydomain.com")
-	}
-
-	// load a config file with no cert_base_name defined
-	cfg, ok = cfgList["no_cert_basename"]
-	if !ok {
-		t.Errorf("invalid section 'no_cert_basename'")
-	}
-	if cfg != nil && cfg.CertBasename != Default_base_cert_name {
-		t.Errorf("cert_basename should be %s", Default_base_cert_name)
-	}
-
-	// load a config file with no protocol defined
-	cfg, ok = cfgList["no_protocol"]
-	if !ok {
-		t.Errorf("invalid section 'no_protocol'")
-	}
-	if cfg != nil && cfg.Protocol != Default_protocol {
-		t.Errorf("protocol should be the %s", Default_protocol)
-	}
-
-	// load a config file with no timeout seconds defined
-	cfg, ok = cfgList["no_timeout_seconds"]
-	if !ok {
-		t.Errorf("invalid section 'no_timeout_seconds'")
-	}
-	if cfg != nil && cfg.TimeoutSeconds != Default_timeout_seconds {
-		t.Errorf("timeout_seconds should be %d", Default_timeout_seconds)
+	for _, tt := range defaultTests {
+		t.Run(tt.section, func(t *testing.T) {
+			cfg, ok := cfgList[tt.section]
+			if !ok {
+				t.Fatalf("section %q not found", tt.section)
+			}
+			tt.check(t, cfg)
+		})
 	}
 }
 
 func TestReadConfigsFromEnvironment(t *testing.T) {
-	configFile := "test_files/environment.ini"
+	t.Setenv("DOMAIN_NAME", "mydomain.com")
+	t.Setenv("API_KEY", "testapikey")
+	t.Setenv("CERT_BASENAME", "letsencrypt")
+	t.Setenv("CLIENT_API", "wsapi")
+	t.Setenv("PRIVATE_KEY_PATH", "test_files/privkey.pem")
+	t.Setenv("FULL_CHAIN_PATH", "test_files/fullchain.pem")
+	t.Setenv("PROTOCOL", "wss")
+	t.Setenv("TLS_SKIP_VERIFY", "false")
+	t.Setenv("CONNECT_HOST", "nas01")
+	t.Setenv("CONNECT_PORT", "443")
+	t.Setenv("TIMEOUT_SECONDS", "5")
+	t.Setenv("DELETE_OLD_CERTIFICATES", "true")
+	t.Setenv("ADD_AS_UI_CERTIFICATE", "true")
+	t.Setenv("ADD_AS_FTP_CERTIFICATE", "true")
+	t.Setenv("ADD_AS_APP_CERTIFICATE", "true")
+	t.Setenv("APP_LIST", "frigate")
+	t.Setenv("DEBUG", "true")
 
-	// set environment variables for testing
-	os.Setenv("DOMAIN_NAME", "mydomain.com")
-	os.Setenv("API_KEY", "testapikey")
-	os.Setenv("CERT_BASENAME", "letsencrypt")
-	os.Setenv("CLIENT_API", "wsapi")
-	os.Setenv("PRIVATE_KEY_PATH", "test_files/privkey.pem")
-	os.Setenv("FULL_CHAIN_PATH", "test_files/fullchain.pem")
-	os.Setenv("PROTOCOL", "wss")
-	os.Setenv("TLS_SKIP_VERIFY", "false")
-	os.Setenv("CONNECT_HOST", "nas01")
-	os.Setenv("CONNECT_PORT", "443")
-	os.Setenv("TIMEOUT_SECONDS", "5")
-	os.Setenv("DELETE_OLD_CERTIFICATES", "true")
-	os.Setenv("ADD_AS_UI_CERTIFICATE", "true")
-	os.Setenv("ADD_AS_FTP_CERTIFICATE", "true")
-	os.Setenv("ADD_AS_APP_CERTIFICATE", "true")
-	os.Setenv("APP_LIST", "frigate")
-	os.Setenv("DEBUG", "true")
-
-	cfgList, err := LoadConfig(configFile)
+	cfgList, err := LoadConfig("test_files/environment.ini")
 	if err != nil {
-		t.Errorf("loading the test config failed with error: %v", err)
+		t.Fatalf("loading the test config failed: %v", err)
 	}
 	cfg, ok := cfgList["deploy_default"]
 	if !ok {
-		t.Fatalf("invalid section 'deploy_default'")
+		t.Fatalf("section 'deploy_default' not found")
 	}
-	if cfg.ConnectHost != "nas01.mydomain.com" {
-		t.Errorf("connect_host should be nas01.mydomain.com")
+
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"ConnectHost", cfg.ConnectHost, "nas01.mydomain.com"},
+		{"CertBasename", cfg.CertBasename, "letsencrypt"},
+		{"ClientApi", cfg.ClientApi, "wsapi"},
+		{"PrivateKeyPath", cfg.PrivateKeyPath, "test_files/privkey.pem"},
+		{"FullChainPath", cfg.FullChainPath, "test_files/fullchain.pem"},
+		{"Protocol", cfg.Protocol, "wss"},
+		{"TlsSkipVerify", cfg.TlsSkipVerify, false},
+		{"Port", cfg.Port, uint64(443)},
+		{"TimeoutSeconds", cfg.TimeoutSeconds, int64(5)},
+		{"DeleteOldCerts", cfg.DeleteOldCerts, true},
+		{"AddAsFTPCertificate", cfg.AddAsFTPCertificate, true},
+		{"AddAsAppCertificate", cfg.AddAsAppCertificate, true},
+		{"AddAsUiCertificate", cfg.AddAsUiCertificate, true},
+		{"AppList", cfg.AppList, "frigate"},
+		{"Debug", cfg.Debug, true},
 	}
-	if cfg.CertBasename != "letsencrypt" {
-		t.Errorf("cert_basename should be letsencrypt")
-	}
-	if cfg.ClientApi != "wsapi" {
-		t.Errorf("client_api should be wsapi")
-	}
-	if cfg.PrivateKeyPath != "test_files/privkey.pem" {
-		t.Errorf("private_key_path should be test_files/privkey.pem")
-	}
-	if cfg.FullChainPath != "test_files/fullchain.pem" {
-		t.Errorf("fullchain_path should be test_files/fullchain.pem")
-	}
-	if cfg.Protocol != "wss" {
-		t.Errorf("protocol should be wss")
-	}
-	if cfg.TlsSkipVerify != false {
-		t.Errorf("tls_skip_verify should be false")
-	}
-	if cfg.Port != 443 {
-		t.Errorf("port should be 443")
-	}
-	if cfg.TimeoutSeconds != 5 {
-		t.Errorf("timeout_seconds should be 5")
-	}
-	if cfg.DeleteOldCerts != true {
-		t.Errorf("delete_old_certs should be true")
-	}
-	if cfg.AddAsFTPCertificate != true {
-		t.Errorf("add_as_ftp_certificate should be true")
-	}
-	if cfg.AddAsAppCertificate != true {
-		t.Errorf("add_as_app_certificate should be true")
-	}
-	if cfg.AddAsUiCertificate != true {
-		t.Errorf("add_as_ui_certificate should be true")
-	}
-	if cfg.AppList != "frigate" {
-		t.Errorf("app_list should be frigate")
-	}
-	if cfg.Debug != true {
-		t.Errorf("debug should be true")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("got %v, want %v", tt.got, tt.want)
+			}
+		})
 	}
 }

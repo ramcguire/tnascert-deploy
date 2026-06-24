@@ -33,17 +33,17 @@ type MockWebSocketClient struct {
 	cfg           *config.Config
 }
 
-func (m *MockWebSocketClient) Call(method string, timeout int64, params interface{}) (json.RawMessage, error) {
-	if method == "app.certificate_choices" {
+func (m *MockWebSocketClient) Call(method string, timeout int64, params any) (json.RawMessage, error) {
+	switch method {
+	case "app.certificate_choices":
 		var resp json.RawMessage
-		certs := []map[string]interface{}{
+		certs := []map[string]any{
 			{"id": 1, "name": "truenas_default"},
 			{"id": 2, "name": "tnas-cert-deploy-2024-12-31-0801683628"},
 			{"id": 3, "name": m.cfg.CertName()},
 		}
 
-		var args map[string]interface{} = make(map[string]interface{})
-		args = map[string]interface{}{
+		args := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  certs,
@@ -55,14 +55,14 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 			resp = json.RawMessage(res)
 			return resp, nil
 		}
-	} else if method == "app.config" {
+	case "app.config":
 		var resp json.RawMessage
-		data := map[string]interface{}{
+		data := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
-			"result": map[string]interface{}{"ix_certificates": map[string]interface{}{
+			"result": map[string]any{"ix_certificates": map[string]any{
 				"testcert": 100,
-			}, "network": map[string]interface{}{
+			}, "network": map[string]any{
 				"certificate_id": 65,
 			}},
 		}
@@ -73,10 +73,10 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 			resp = json.RawMessage(res)
 			return resp, nil
 		}
-	} else if method == "app.query" {
+	case "app.query":
 		var resp json.RawMessage
-		m := []map[string]interface{}{{"name": "testapp", "id": "testapp"}}
-		data := map[string]interface{}{
+		m := []map[string]any{{"name": "testapp", "id": "testapp"}}
+		data := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  m,
@@ -88,9 +88,9 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 			resp = json.RawMessage(res)
 			return resp, nil
 		}
-	} else if method == "certificate.create" {
+	case "certificate.create":
 		var resp json.RawMessage
-		data := map[string]interface{}{
+		data := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  100,
@@ -102,11 +102,11 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 			resp = json.RawMessage(res)
 			return resp, nil
 		}
-	} else if method == "ftp.update" {
-		result := map[string]interface{}{
+	case "ftp.update":
+		result := map[string]any{
 			"testresult": "ok",
 		}
-		args := map[string]interface{}{
+		args := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  result,
@@ -118,9 +118,9 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 			resp := json.RawMessage(res)
 			return resp, nil
 		}
-	} else if method == "system.general.ui_restart" {
+	case "system.general.ui_restart":
 		return nil, nil
-	} else if method == "system.info" {
+	case "system.info":
 		jsonResp := `{"jsonrpc": "2.0","result": {"version": "25.04.2.5"}}`
 		jsonRawmsg := json.RawMessage(jsonResp)
 		return jsonRawmsg, nil
@@ -129,9 +129,10 @@ func (m *MockWebSocketClient) Call(method string, timeout int64, params interfac
 	return nil, nil
 }
 
-func (m *MockWebSocketClient) CallWithJob(method string, params interface{}, callback func(progress float64, state string, desc string)) (*truenas_api.Job, error) {
+func (m *MockWebSocketClient) CallWithJob(method string, params any, callback func(progress float64, state string, desc string)) (*truenas_api.Job, error) {
 	var job truenas_api.Job
-	if method == "app.update" {
+	switch method {
+	case "app.update":
 		job = truenas_api.Job{
 			ID:         100,
 			Method:     "app.update",
@@ -139,7 +140,7 @@ func (m *MockWebSocketClient) CallWithJob(method string, params interface{}, cal
 			ProgressCh: make(chan float64),
 			DoneCh:     make(chan string),
 		}
-	} else if method == "certificate.create" {
+	case "certificate.create":
 		job = truenas_api.Job{
 			ID:         101,
 			Method:     "certificate.create",
@@ -147,7 +148,7 @@ func (m *MockWebSocketClient) CallWithJob(method string, params interface{}, cal
 			ProgressCh: make(chan float64),
 			DoneCh:     make(chan string),
 		}
-	} else if method == "certificate.delete" {
+	case "certificate.delete":
 		job = truenas_api.Job{
 			ID:         101,
 			Method:     "certificate.create",
